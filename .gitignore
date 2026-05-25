@@ -19,3 +19,8 @@ include/config.h
 .DS_Store
 Thumbs.db
  
+bin/
+obj/
+.vs/
+*.user
+*.suo
