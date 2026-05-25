@@ -5,6 +5,12 @@
 #include<WiFi.h>
 #include<ArduinoJson.h>
 #include<esp_sleep.h>
+#include<config.h>
+
+// Khai bao chan LED trang thai wifi
+#define LED_FAIL_PIN       27 // Mau Do 
+#define LED_CONNECTING_PIN 26 // Mau Vang
+#define LED_SUCCESS_PIN    14 // Mau Xanh 
 
 // cau hinh chan ket noi
 #define I2C_SDA           21
@@ -12,17 +18,16 @@
 #define MPU_INT_PIN       GPIO_NUM_33
 #define SERIAL_BAUD       115200
 
-// cấu hình mạng wifi
-const char* ssid      = "TeoHamChoi";       // Tên mạng
-const char* password  = "hatmebietbay";     // mật khẩu mạng
-const char* hostIP    = "172.20.10.2";      // địa chỉ IP của laptop khi đã kết nối vào mạng
-const int   tcpPort   = 8888;               // cổng tcp để gửi dữ liệu qua C#
-
 // cau hinh thoi gian ngu va thuc
-#define TIMER_SLEEP_SEC   60            // cứ 60 giây esp đọc dữ liệu JSON 1 lần, có thể tăng lên khoảng 120 đến 300 để tiết kiệm pin (biểu đồ thưa hơn)
+#define BATTERY_ADC_PIN   34
+#define TIMER_SLEEP_SEC   300            // cứ 5 phút = 300 giây, esp thức dậy đọc dữ liệu 1 lần
 #define VIB_BURST_SAMPLES 20            // khi có rung, esp sẽ đọc 20 mẫu
 #define VIB_BURST_DELAY   100           // tốn 2 giây để mpu đọc 20 mẫu, tức có rung, esp sẽ on 20 x 100ms = 2 giây để đọc và off lại.
 #define SERIAL_FLUSH_MS   50
+
+// ngưỡng điện áp pin để cảnh báo và tắt máy
+#define BATTERY_MAX_VOLTAGE 8.4f
+#define BATTERY_MIN_VOLTAGE 6.0f
 
 // cau hinh do nhay mpu6050
 #define MOTION_THRESHOLD  15        // có thể tăng lên 20-30 để giảm nhạy trong trường hợp do nhiễu, hoặc giảm xuống 10-15 để tăng nhạy
@@ -47,7 +52,7 @@ const int   tcpPort   = 8888;               // cổng tcp để gửi dữ liệ
 #define REG_INT_STATUS    0x3A
 #define REG_MOT_THR       0x1F
 #define REG_MOT_DUR       0x20
-#define REG_MOT_DETECT    0x69
+#define REG_MOT_DETECT    0x61
 
 #define ACCEL_SCALE       4096.0f
 #define GYRO_SCALE        65.5f
@@ -63,6 +68,37 @@ RTC_DATA_ATTR uint32_t motionWakes = 0;
 // doi tuong cam bien
 Adafruit_AHTX0 aht;
 uint8_t mpuAddr = 0;
+
+// Biến lưu thông số pin toàn cục
+float batteryVoltage = 0.0f;
+float batteryPercentage = 0.0f;
+
+// Hàm tính phần trăm pin từ điện áp
+float calculateBatteryPercentage(float voltage) {
+  if (voltage >= BATTERY_MAX_VOLTAGE) return 100.0f;
+  if (voltage <= BATTERY_MIN_VOLTAGE) return 0.0f;
+  return ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0f;
+}
+
+// Hàm đọc giá trị ADC và quy đổi ra số Vôn thực tế
+void readBatteryStatus() {
+  uint32_t sumADC = 0;
+  // Đọc lấy mẫu 10 lần để lấy trung bình, giảm nhiễu dao động cho ADC
+  for (int i = 0; i < 10; i++) {
+    sumADC += analogRead(BATTERY_ADC_PIN);
+    delay(2);
+  }
+  float avgADC = (float)sumADC / 10.0f;
+  
+  // Tính toán điện áp tại chân GPIO 34 (hệ số 3.3V / 4095)
+  float pinVoltage = (avgADC / 4095.0f) * 3.3f;
+  
+  // Nhân ngược lại hệ số phân áp (R1=22k, R2=10k -> Hệ số nhân là 3.2)
+  batteryVoltage = pinVoltage * 3.2f;
+  
+  // Tính toán phần trăm pin
+  batteryPercentage = calculateBatteryPercentage(batteryVoltage);
+}
 
 // cac ham giao tiep mpu6050
 void mpuWriteReg(uint8_t reg, uint8_t val) {
@@ -170,6 +206,10 @@ void sendVibJson(float ax, float ay, float az, float temp, float humi, const cha
   doc["status"] = status;
   doc["temp"]   = temp;
   doc["hum"]    = humi;
+  doc["vbat"]   = serialized(String(batteryVoltage, 2));   
+  doc["pbat"]   = serialized(String(batteryPercentage, 1));
+  doc["totalWakes"]  = totalWakes;
+  doc["motionWakes"] = motionWakes;
 
   String output;
   serializeJson(doc, output);
@@ -184,6 +224,8 @@ void sendStatusJson(float temp, float humi) {
   doc["motionWakes"] = motionWakes;
   doc["temp"]        = temp;
   doc["hum"]         = humi;
+  doc["vbat"]        = serialized(String(batteryVoltage, 2));   
+  doc["pbat"]        = serialized(String(batteryPercentage, 1));
 
   String output;
   serializeJson(doc, output);
@@ -220,6 +262,16 @@ void setup() {
   const char* wakeStr = (wakeReason == ESP_SLEEP_WAKEUP_EXT0) ? "MOTION" : (wakeReason == ESP_SLEEP_WAKEUP_TIMER) ? "TIMER" : "RESET";
   if (wakeReason == ESP_SLEEP_WAKEUP_EXT0) motionWakes++;
 
+  // khởi tạo led
+  pinMode(LED_FAIL_PIN, OUTPUT);
+  pinMode(LED_CONNECTING_PIN, OUTPUT);
+  pinMode(LED_SUCCESS_PIN, OUTPUT);
+  digitalWrite(LED_FAIL_PIN, LOW);
+  digitalWrite(LED_CONNECTING_PIN, LOW);
+  digitalWrite(LED_SUCCESS_PIN, LOW);
+
+  digitalWrite(LED_CONNECTING_PIN, HIGH);
+
   // bat wifi va doi ket noi
   Serial.println("dang ket noi wifi...");
   WiFi.begin(ssid, password);
@@ -232,16 +284,25 @@ void setup() {
   }
   Serial.println();
 
+  digitalWrite(LED_CONNECTING_PIN, LOW);
+
   // kiem tra xem co vao duoc mang khong
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("ket noi wifi thanh cong!");
+    digitalWrite(LED_SUCCESS_PIN, HIGH);
   } else {
     Serial.println("loi mang! di ngu day!");
+    digitalWrite(LED_FAIL_PIN, HIGH);
   }
 
-Wire.begin(I2C_SDA, I2C_SCL);
+  // Cấu hình chân ADC đọc pin làm ngõ vào
+  pinMode(BATTERY_ADC_PIN, INPUT);
+  // Thực hiện đọc dữ liệu pin ngay khi vừa thức dậy
+  readBatteryStatus();
 
-if (!findMPU()) {
+  Wire.begin(I2C_SDA, I2C_SCL);
+
+  if (!findMPU()) {
     esp_sleep_enable_timer_wakeup((uint64_t)TIMER_SLEEP_SEC * 1000000ULL);
     esp_deep_sleep_start();
   }
@@ -271,8 +332,12 @@ if (!findMPU()) {
     }
   }
 
-  delay(200); 
+  delay(1000); 
+  digitalWrite(LED_SUCCESS_PIN, LOW);
+  digitalWrite(LED_FAIL_PIN, LOW);  
+  
   goToSleep();
+
 }
 
 // ham loop bi bo qua do dung che do deep sleep
