@@ -153,13 +153,26 @@ The firmware averages 10 ADC samples per reading to reduce noise.
 | ESP32 deep sleep | ~10 µA |
 | MPU6050 motion-detect mode | ~20 µA |
 | AHT30 idle | ~25 µA |
-| **Total sleep** | **~55 µA** |
-| Active (wake + WiFi TX) | ~80 mA |
+| MP1584EN + charging circuit (sleep overhead) | ~1–2 mA |
+| Active (wake + WiFi TX) | ~120 mA |
 
-**Estimated battery life** with 2S 18650 pack (~3000mAh usable at 7.2V nominal), assuming 10 motion events/hour:
-- Timer wakes: 1 per 5 min × ~1.5s active
-- Motion wakes: 10/hour × ~2.5s active (20 samples × 100ms)
-- **~200+ days**
+**Battery life calculation** — 2S 18650 pack, ~3000mAh at 7.4V nominal:
+
+| Parameter | Value |
+|---|---|
+| Gross capacity | 3000 mAh |
+| MP1584EN efficiency | ~85% |
+| Usable capacity (at 3.3V rail) | **2550 mAh** |
+| Active current (WiFi TX) | ~120 mA |
+| Active duration per wake | ~3 s |
+| Energy per wake | 120 mA × (3/3600) h = **0.1 mAh** |
+| **Max wake cycles** | 2550 / 0.1 = **~25,500 wakes** |
+
+**At `TIMER_SLEEP_SEC = 300` (1 wake per 5 min = 288 wakes/day):**
+
+> **~88 days (~3 months)** before recharge
+
+> Note: The MP1584EN buck converter and charging circuit draw ~1–2 mA even during deep sleep, reducing real-world runtime by roughly 10–15% compared to a theoretical bare-chip calculation.
 
 ---
 
