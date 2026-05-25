@@ -6,6 +6,14 @@ The node eliminates on-device displays entirely — all monitoring is handled by
 
 ---
 
+## Demo
+
+https://github.com/user-attachments/assets/b24c55bd-7c10-4cd6-8c39-6ffbfbb448c3
+
+https://github.com/user-attachments/assets/8bd2ca6d-c48b-4dbc-baae-512c44d9325b
+
+---
+
 ## Features
 
 - **Real-time vibration monitoring** — 3-axis acceleration (X/Y/Z) via MPU6050
