@@ -6,6 +6,10 @@
 #include<ArduinoJson.h>
 #include<esp_sleep.h>
 #include<config.h>
+#include<arduinoFFT.h>
+
+#define SAMPLES             1024            
+#define SAMPLING_FREQUENCY  1000  // Tốc độ lấy mẫu 
 
 // Khai bao chan LED trang thai wifi
 #define LED_FAIL_PIN       27 // Mau Do 
@@ -16,10 +20,10 @@
 #define I2C_SDA           21
 #define I2C_SCL           22
 #define MPU_INT_PIN       GPIO_NUM_33
+#define BATTERY_ADC_PIN   34
 #define SERIAL_BAUD       115200
 
 // cau hinh thoi gian ngu va thuc
-#define BATTERY_ADC_PIN   34
 #define TIMER_SLEEP_SEC   300            // cứ 5 phút = 300 giây, esp thức dậy đọc dữ liệu 1 lần
 #define VIB_BURST_SAMPLES 20            // khi có rung, esp sẽ đọc 20 mẫu
 #define VIB_BURST_DELAY   100           // tốn 2 giây để mpu đọc 20 mẫu, tức có rung, esp sẽ on 20 x 100ms = 2 giây để đọc và off lại.
@@ -73,7 +77,11 @@ uint8_t mpuAddr = 0;
 float batteryVoltage = 0.0f;
 float batteryPercentage = 0.0f;
 
-// Hàm tính phần trăm pin từ điện áp
+// Khai báo 2 mảng chứa số thực và số ảo cho thuật toán
+double vReal[SAMPLES];
+double vImag[SAMPLES];
+
+//Hàm tính phần trăm pin từ điện áp
 float calculateBatteryPercentage(float voltage) {
   if (voltage >= BATTERY_MAX_VOLTAGE) return 100.0f;
   if (voltage <= BATTERY_MIN_VOLTAGE) return 0.0f;
@@ -189,8 +197,75 @@ void broadcastJson(String jsonStr) {
   }
 }
 
+// Khởi tạo đối tượng FFT
+ArduinoFFT<double> FFT(vReal, vImag, SAMPLES, SAMPLING_FREQUENCY);
+
+// Hàm thực hiện lấy mẫu siêu tốc và tính FFT
+double calculatePeakFrequency() {
+  uint32_t sampling_period_us = round(1000000.0 / SAMPLING_FREQUENCY); // Tính ra đúng 1000 micro-giây
+  uint32_t microseconds;
+
+  // Quá trình thu thập 1024 mẫu chính xác thời gian
+  for (int i = 0; i < SAMPLES; i++) {
+    microseconds = micros(); 
+
+    float ax, ay, az;
+    if (mpuReadAccel(ax, ay, az)) {
+      // Dùng Vector tổng của 3 trục để phân tích FFT
+      vReal[i] = sqrt(ax*ax + ay*ay + az*az); 
+    } else {
+      vReal[i] = 0.0;
+    }
+    vImag[i] = 0.0; // Phần ảo luôn bằng 0 khi lấy mẫu thực tế
+
+    // Chờ cho đến khi đúng tròn 1ms (1000us) trôi qua
+    while (micros() - microseconds < sampling_period_us) {
+      // Vòng lặp rỗng để hãm tốc độ, giữ nhịp 1000Hz
+    }
+  }
+
+  // loại trừ thành phần DC do trục z gây ra - lực hút Trái đất - 9.18 m/s^2
+  double sum = 0;
+  for (int i = 0; i < SAMPLES; i++) {
+    sum += vReal[i];
+  }
+  double mean = sum / SAMPLES; // Tính trung bình (chính là trọng lực)
+
+  for (int i = 0; i < SAMPLES; i++) {
+    vReal[i] = vReal[i] - mean; // Lấy mẫu thực tế trừ đi trọng lực
+  }
+
+  // Lọc nhiễu biên bằng cửa sổ Hamming
+  FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
+  // Chạy thuật toán FFT
+  FFT.compute(FFTDirection::Forward);
+  // Biến đổi số phức thành biên độ (Magnitude)
+  FFT.complexToMagnitude();
+
+  // tao goi tin json doc lap cho fft
+  JsonDocument doc;
+  doc["type"] = "fft";
+  JsonArray fftData = doc["fft_data"].to<JsonArray>();
+
+  // lay 256 diem bo qua diem 0 do nhieu dc
+  for (int i = 1; i <= 256; i++) {
+    // lam tron 1 chu so thap phan cho nhe goi tin
+    fftData.add(serialized(String(vReal[i], 1))); 
+  }
+
+  String output;
+  serializeJson(doc, output);
+  broadcastJson(output);
+
+  // Tìm ra tần số (Hz) đang có biên độ rung bạo lực nhất
+  double peakFrequency = FFT.majorPeak();
+  
+  return peakFrequency;
+}
+
 // dong goi va gui json qua serial
-void sendVibJson(float ax, float ay, float az, float temp, float humi, const char* wakeReason, uint32_t sampleIdx) {
+// 1. gói JSON về các dữ liệu rung động
+void sendVibJson(float ax, float ay, float az, float temp, float humi, const char* wakeReason, uint32_t sampleIdx, double peakFreq) {
   float mag = sqrtf(ax*ax + ay*ay + az*az);
   const char* status = (mag >= THR_ALARM) ? "ALARM" : (mag >= THR_WARN)  ? "WARN" : "OK";
 
@@ -210,12 +285,14 @@ void sendVibJson(float ax, float ay, float az, float temp, float humi, const cha
   doc["pbat"]   = serialized(String(batteryPercentage, 1));
   doc["totalWakes"]  = totalWakes;
   doc["motionWakes"] = motionWakes;
+  doc["peakFreq"] = serialized(String(peakFreq, 2));
 
   String output;
   serializeJson(doc, output);
   broadcastJson(output);
 }
 
+// 2. gói JSON về các dữ liệu trạng thái hệ thống, nhiệt độ, độ ẩm.
 void sendStatusJson(float temp, float humi) {
   JsonDocument doc;
   doc["type"]        = "status";
@@ -232,7 +309,7 @@ void sendStatusJson(float temp, float humi) {
   broadcastJson(output);
 }
 
-// dua he thong vao trang thai ngu sau
+// Sleep-mode
 void goToSleep() {
   mpuReadReg(REG_INT_STATUS);
   initMPU_MotionWake();
@@ -249,7 +326,6 @@ void goToSleep() {
   esp_deep_sleep_start();
 }
 
-// khoi dong va xu ly su kien
 void setup() {
   // khoi dong cong serial de theo doi loi
   Serial.begin(115200);
@@ -308,11 +384,14 @@ void setup() {
   }
   initMPU_Normal();
 
-  if (wakeReason == ESP_SLEEP_WAKEUP_EXT0) {
-    for (uint32_t i = 0; i < VIB_BURST_SAMPLES; i++) {
+  if (wakeReason == ESP_SLEEP_WAKEUP_EXT0) {  
+
+    double peakFreq = calculatePeakFrequency(); // gọi hàm tính FFT tiếp tục thực hiện đọc 1024 mẫu ~ 1,024 giây
+
+    for (uint32_t i = 0; i < VIB_BURST_SAMPLES; i++) { // vòng lặp đọc 20 mẫu, mỗi vòng lặp gọi peakFreq 1 lần => xấp xỉ 22 giây (chưa tính trễ xử lý và delay)
       float ax, ay, az;
       if (mpuReadAccel(ax, ay, az)) {
-        sendVibJson(ax, ay, az, rtcTemp, rtcHumi, wakeStr, i + 1);
+        sendVibJson(ax, ay, az, rtcTemp, rtcHumi, wakeStr, i + 1, peakFreq);
       }
       delay(VIB_BURST_DELAY);
     }
@@ -321,14 +400,15 @@ void setup() {
     if (ahtOK) {
       sensors_event_t humi_evt, temp_evt;
       aht.getEvent(&humi_evt, &temp_evt);
-      rtcTemp    = temp_evt.temperature;
-      rtcHumi    = humi_evt.relative_humidity;
+      rtcTemp = temp_evt.temperature;
+      rtcHumi = humi_evt.relative_humidity;
       rtcEnvValid = true;
     }
     sendStatusJson(rtcTemp, rtcHumi);
     float ax, ay, az;
     if (mpuReadAccel(ax, ay, az)) {
-      sendVibJson(ax, ay, az, rtcTemp, rtcHumi, wakeStr, 1);
+      double peakFreq = calculatePeakFrequency();
+      sendVibJson(ax, ay, az, rtcTemp, rtcHumi, wakeStr, 1, peakFreq);
     }
   }
 
