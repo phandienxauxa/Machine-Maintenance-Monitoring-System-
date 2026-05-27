@@ -39,7 +39,7 @@
 
 // nguong canh bao rung
 #define THR_WARN          2.0f
-#define THR_ALARM         5.0f
+#define THR_ALARM         5.0f 
 
 // danh sach thanh ghi mpu6050
 #define MPU_ADDR_LOW      0x68
@@ -266,6 +266,7 @@ double calculatePeakFrequency() {
 // dong goi va gui json qua serial
 // 1. gói JSON về các dữ liệu rung động
 void sendVibJson(float ax, float ay, float az, float temp, float humi, const char* wakeReason, uint32_t sampleIdx, double peakFreq) {
+  
   float mag = sqrtf(ax*ax + ay*ay + az*az);
   const char* status = (mag >= THR_ALARM) ? "ALARM" : (mag >= THR_WARN)  ? "WARN" : "OK";
 

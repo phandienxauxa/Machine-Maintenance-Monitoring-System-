@@ -186,3 +186,4 @@ C:\Users\PC\source\repos\demo\demo\bin\Debug\net8.0-windows\runtimes\osx-arm64\n
 C:\Users\PC\source\repos\demo\demo\bin\Debug\net8.0-windows\runtimes\osx-x64\native\libSystem.IO.Ports.Native.dylib
 C:\Users\PC\source\repos\demo\demo\bin\Debug\net8.0-windows\runtimes\unix\lib\net8.0\System.IO.Ports.dll
 C:\Users\PC\source\repos\demo\demo\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.IO.Ports.dll
+C:\Users\PC\source\repos\demo\demo\obj\Debug\net8.0-windows\demo.FormFFT.resources
