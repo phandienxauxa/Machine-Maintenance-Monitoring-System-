@@ -2,15 +2,17 @@
 
 An IIoT-based machine condition monitoring node using **ESP32**, **AHT30** (temperature & humidity), and **MPU6050** (3-axis vibration). Designed for predictive maintenance in smart factory environments with ultra-low power consumption for long-term battery operation.
 
+The Fast Fourier Transform (FFT) serves as the mathematical core of the system, transforming complex time-domain vibration data into a clear frequency spectrum to act as a diagnostic "microscope" for pinpointing specific mechanical failures.
+
 The node eliminates on-device displays entirely — all monitoring is handled by a **C# DevExpress dashboard** over WiFi TCP, following industrial IoT conventions.
 
 ---
 
-## Demo
+## Final Product
+https://github.com/user-attachments/assets/50478319-17dd-43f2-b733-473b464219a0
 
-https://github.com/user-attachments/assets/b24c55bd-7c10-4cd6-8c39-6ffbfbb448c3
-
-https://github.com/user-attachments/assets/8bd2ca6d-c48b-4dbc-baae-512c44d9325b
+## Demo verview
+https://github.com/user-attachments/assets/dbac4ba8-4298-4473-b97f-ee65607bbbc8
 
 ---
 
@@ -53,7 +55,8 @@ https://github.com/user-attachments/assets/8bd2ca6d-c48b-4dbc-baae-512c44d9325b
 | ESP32-WROOM-32U | Main MCU with external antenna |
 | AHT30 | Temperature (±0.3°C) & Humidity (±2% RH), I2C 0x38 |
 | MPU6050 | 3-axis accelerometer + gyroscope, I2C 0x68/0x69 (auto-detected) |
-| 2× 18650 Li-ion (2S) | Series pack, 6.0V – 8.4V, ~6000mAh |
+| 2× 18650 Li-ion (2S) | Series pack, ~7.4V, ~3000mAh |
+| 2-Series Charging | Type-C, 6.0V(0%) - 8.4V(100%) | 
 | MP1584EN buck converter | Steps 2S pack down to stable 3.3V |
 | Voltage divider (22kΩ / 10kΩ) | Scales battery voltage to ADC-safe range |
 | 3× status LEDs | Red (fail) GPIO 27 / Yellow (connecting) GPIO 26 / Green (success) GPIO 14 |
@@ -84,7 +87,7 @@ LED Green  ──────────────► GPIO 14  ← WiFi succe
 
 ## JSON Output Format
 
-Both packet types carry battery and wake statistics so the dashboard can update all widgets regardless of wake reason.
+The system transmits three distinct packet types: vib for burst motion data, fft for spectral analysis, and status for routine environment updates.
 
 ### Vibration packet (motion wakeup — 20-sample burst)
 ```json
@@ -104,9 +107,23 @@ Both packet types carry battery and wake statistics so the dashboard can update 
   "pbat": "93.3",
   "totalWakes": 13,
   "motionWakes": 3
+  "peakFreq": 10.50
 }
 ```
 
+### FFT packet (frequency spectrum data)
+```json
+{
+  "type": "fft",
+  "fft_data": [
+    "0.0",
+    "1.5",
+    "4.2",
+    "12.8",
+    "..." 
+  ]
+}
+```
 ### Status packet (timer wakeup — every 5 minutes)
 ```json
 {
@@ -146,7 +163,7 @@ The firmware averages 10 ADC samples per reading to reduce noise.
 
 ---
 
-## Power Consumption
+## Power Consumption & Battery Life 
 
 | Mode | Current |
 |---|---|
@@ -216,6 +233,7 @@ pio device monitor
 | Adafruit AHTX0 | ^2.0.5 | AHT30 sensor driver |
 | Adafruit Unified Sensor | ^1.1.14 | Sensor abstraction layer |
 | ArduinoJson | ^7.0.0 | JSON serialization |
+| ArduinoFFT | ^3.x.x | Fast-Fourier-Transform Processing |
 
 > MPU6050 communicates directly via `Wire.h` with raw register access — no additional library required.
 
