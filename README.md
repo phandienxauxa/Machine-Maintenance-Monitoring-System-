@@ -37,7 +37,7 @@ https://github.com/user-attachments/assets/dbac4ba8-4298-4473-b97f-ee65607bbbc8
 │                  ESP32-WROOM-32U                        │
 │                                                         │
 │  AHT30   ──I2C──► Temp / Humidity                       │
-│  MPU6050 ──I2C──► Accel X/Y/Z  ──► Motion INT (EXT0)   │
+│  MPU6050 ──I2C──► Accel X/Y/Z  ──► Motion INT (EXT0)    │
 │  ADC Divider ───► GPIO 34  ──► Battery Voltage/Percent  │
 │                                          │              │
 │  Deep Sleep ◄────────────────────────────┘              │
@@ -115,7 +115,8 @@ The system transmits three distinct packet types: vib for burst motion data, fft
 ```json
 {
   "type": "fft",
-  "fft_data": [
+  "fft_data":
+  [
     "0.0",
     "1.5",
     "4.2",
@@ -178,7 +179,7 @@ The firmware averages 10 ADC samples per reading to reduce noise.
 | Parameter | Value |
 |---|---|
 | Gross capacity | 3000 mAh |
-| MP1584EN efficiency | ~85% |
+| MP1584EN efficiency | ~96% |
 | Usable capacity (at 3.3V rail) | **2550 mAh** |
 | Active current (WiFi TX) | ~120 mA |
 | Active duration per wake | ~3 s |
