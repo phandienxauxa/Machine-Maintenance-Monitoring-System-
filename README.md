@@ -11,7 +11,7 @@ The node eliminates on-device displays entirely — all monitoring is handled by
 ## Final Product
 https://github.com/user-attachments/assets/50478319-17dd-43f2-b733-473b464219a0
 
-## Demo verview
+## Demo Overview
 https://github.com/user-attachments/assets/dbac4ba8-4298-4473-b97f-ee65607bbbc8
 
 ---
